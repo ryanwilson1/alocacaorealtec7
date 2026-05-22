@@ -845,6 +845,7 @@ function pageEquipe() {
               <button class="btn btn-sec btn-xs" onclick="S.modalColab='${c.id}';render()"><i class="ti ti-eye"></i> Ver</button>
               ${c.status!=='alocado'?`<button class="btn btn-pri btn-xs" onclick="S.modalAloc=true;S.alocTarget='${c.id}';render()"><i class="ti ti-link"></i> Alocar</button>`:''}
               ${c.status==='alocado'?`<button class="btn btn-xs" style="background:var(--org-p);color:var(--org);border:1px solid var(--org-p)" onclick="liberarColab('${c.id}')"><i class="ti ti-unlink"></i> Liberar</button>`:''}
+              ${isAdmin?`<button class="btn btn-xs" style="background:var(--red-p);color:var(--red);border:1px solid var(--red-p)" onclick="if(confirm('Excluir ${c.nome}?'))excluirColab('${c.id}')"><i class="ti ti-trash"></i></button>`:''}
             </div>
           </td>
         </tr>`;}).join('')}
@@ -1477,10 +1478,11 @@ function modalColabDetail() {
       <div><div style="font-size:10px;color:var(--grn);text-transform:uppercase;letter-spacing:.5px;font-weight:700">Obra Atual</div>
       <div style="font-size:13px;font-weight:600;color:var(--g7);margin-top:2px">${obra.nome}</div></div>
     </div>`:''}
-    <div style="display:flex;gap:8px;margin-top:18px">
-      <button class="btn btn-sec" style="flex:1;justify-content:center" onclick="S.modalColab=null;render()"><i class="ti ti-x"></i> Fechar</button>
-      ${c.status!=='alocado'?`<button class="btn btn-pri" style="flex:1;justify-content:center" onclick="S.modalColab=null;S.modalAloc=true;S.alocTarget='${c.id}';render()"><i class="ti ti-link"></i> Alocar</button>`:
+    <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+      <button class="btn btn-sec" style="flex:1;justify-content:center;min-width:80px" onclick="S.modalColab=null;render()"><i class="ti ti-x"></i> Fechar</button>
+      ${c.status!=='alocado'?`<button class="btn btn-pri" style="flex:1;justify-content:center;min-width:80px" onclick="S.modalColab=null;S.modalAloc=true;S.alocTarget='${c.id}';render()"><i class="ti ti-link"></i> Alocar</button>`:
       `<button class="btn btn-xs" style="flex:1;justify-content:center;background:var(--org-p);color:var(--org);border:1px solid var(--org-p)" onclick="S.modalColab=null;liberarColab('${c.id}')"><i class="ti ti-unlink"></i> Liberar</button>`}
+      ${isAdmin?`<button class="btn btn-xs" style="background:var(--red-p);color:var(--red);border:1px solid var(--red-p);padding:8px 12px" onclick="if(confirm('Excluir ${c.nome}? Esta ação não pode ser desfeita.'))excluirColab('${c.id}')"><i class="ti ti-trash"></i></button>`:''}
     </div>
   </div>
 </div>`;
@@ -1488,67 +1490,155 @@ function modalColabDetail() {
 
 function modalAlocacao() {
   const livres = S.colaboradores.filter(c=>c.status!=='alocado'&&c.status!=='afastado');
+  const alocados = S.colaboradores.filter(c=>c.status==='alocado');
   const ativas = S.obras.filter(o=>o.status==='ativo');
   const target = S.alocTarget ? S.colaboradores.find(c=>c.id===S.alocTarget) : null;
   const isGestor = S.auth.role === 'gestor';
+
+  // Avisão para colaboradores já alocados
+  const avisoAlocados = alocados.length ? `
+    <div style="background:var(--org-p);border:1px solid #FFCC80;border-radius:9px;padding:10px 13px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--org);margin-bottom:6px"><i class="ti ti-alert-triangle" style="margin-right:4px"></i>${alocados.length} colaborador(es) já alocado(s) — não aparecem na lista abaixo</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        ${alocados.slice(0,6).map(c=>{
+          const obra = S.obras.find(o=>o.id===c.obra_id);
+          return `<div style="font-size:10px;background:#fff;border-radius:6px;padding:3px 8px;color:var(--g6)">${c.nome.split(' ')[0]} <span style="color:var(--org)">→ ${obra?obra.nome.split('-')[0]:'?'}</span></div>`;
+        }).join('')}
+        ${alocados.length>6?`<div style="font-size:10px;color:var(--org);padding:3px 8px">+${alocados.length-6} mais</div>`:''}
+      </div>
+      ${isGestor?`<button class="btn btn-xs" style="margin-top:8px;background:var(--org);color:#fff;border:none" onclick="S.modalAloc=false;S.page='solicitacoes';render()"><i class="ti ti-git-pull-request"></i> Solicitar liberação ao ADM</button>`:''}
+    </div>` : '';
+
+  // Lista de colaboradores disponíveis com checkboxes (multi-seleção)
+  const listaDisponiveis = livres.length ? livres.map(c=>`
+    <label style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;cursor:pointer;border:1.5px solid var(--g2);margin-bottom:6px;transition:all .12s" class="colab-check-item" data-id="${c.id}" onclick="toggleColabCheck('${c.id}',this)">
+      <div style="width:18px;height:18px;border-radius:5px;border:2px solid var(--g3);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .12s" class="chk-box"></div>
+      <div class="av av-sm" style="flex-shrink:0">${initials(c.nome)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;color:var(--g7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.nome}</div>
+        <div style="font-size:10px;color:var(--g4)">${c.funcao||'—'} · <span class="pill ${statusInfo(c.status).cls}" style="font-size:8px">${statusInfo(c.status).label}</span></div>
+      </div>
+    </label>`).join('') : '<div style="text-align:center;padding:20px;color:var(--g4);font-size:12px"><i class="ti ti-users-group" style="font-size:28px;display:block;margin:0 auto 8px"></i>Todos os colaboradores estão alocados</div>';
+
   return `
 <div class="overlay" onclick="if(event.target===this){S.modalAloc=false;S.alocTarget=null;render()}">
-  <div class="modal">
+  <div class="modal" style="max-width:520px">
     <div class="modal-hd">
-      <span class="modal-title"><i class="ti ti-${isGestor?'users':'link'}" style="color:var(--pri-l);margin-right:6px"></i> ${isGestor?'Montar Equipe do Dia':'Nova Alocação'}</span>
+      <span class="modal-title"><i class="ti ti-users" style="color:var(--pri-l);margin-right:6px"></i> ${isGestor?'Alocar Equipe':'Nova Alocação'}</span>
       <button class="modal-x" onclick="S.modalAloc=false;S.alocTarget=null;render()"><i class="ti ti-x"></i></button>
     </div>
-    ${isGestor?`<div class="alert a-info mb12"><i class="ti ti-info-circle"></i><span>Selecione o colaborador, a obra e descreva o trabalho do dia antes de confirmar.</span></div>`
-    :`<div class="alert a-info mb12"><i class="ti ti-info-circle"></i><span>Dupla alocação verificada automaticamente antes de salvar no banco.</span></div>`}
+
+    ${avisoAlocados}
+
+    <!-- PASSO 1: Obra -->
+    <div style="font-size:10px;font-weight:700;color:var(--pri-l);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px"><span style="background:var(--pri-pale);border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px;font-size:10px">1</span>Obra</div>
     <div class="fg">
-      <label class="lbl">Colaborador</label>
-      <select class="inp" id="sel-colab">
-        ${livres.length ? livres.map(c=>`<option value="${c.id}" ${target&&target.id===c.id?'selected':''}>${c.nome} — ${statusInfo(c.status).label}</option>`).join('') : '<option>Nenhum colaborador disponível</option>'}
+      <select class="inp" id="sel-obra" style="font-weight:600">
+        <option value="">— Selecione a obra —</option>
+        ${ativas.length ? ativas.map(o=>`<option value="${o.id}">${o.nome}${o.cliente?' — '+o.cliente:''}</option>`).join('') : '<option>Nenhuma obra ativa</option>'}
       </select>
     </div>
-    <div class="fg">
-      <label class="lbl">Obra</label>
-      <select class="inp" id="sel-obra">
-        ${ativas.length ? ativas.map(o=>`<option value="${o.id}">${o.nome} — ${o.cliente||''}</option>`).join('') : '<option>Nenhuma obra ativa</option>'}
-      </select>
+
+    <!-- PASSO 2: Centro de custo / tipo -->
+    <div style="font-size:10px;font-weight:700;color:var(--pri-l);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px"><span style="background:var(--pri-pale);border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px;font-size:10px">2</span>Centro de Custo</div>
+    <div class="fg" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn btn-sec" id="cc-direto" style="justify-content:center;padding:9px" onclick="selecionarCC('Direto')"><i class="ti ti-tool" style="margin-right:5px"></i>Direto</button>
+      <button class="btn btn-sec" id="cc-indireto" style="justify-content:center;padding:9px" onclick="selecionarCC('Indireto')"><i class="ti ti-briefcase" style="margin-right:5px"></i>Indireto</button>
     </div>
-    ${isGestor?`
+
+    <!-- PASSO 3: Descrição do trabalho -->
+    <div style="font-size:10px;font-weight:700;color:var(--pri-l);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px"><span style="background:var(--pri-pale);border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px;font-size:10px">3</span>Trabalho a Executar</div>
     <div class="fg">
-      <label class="lbl">Descrição do trabalho do dia</label>
-      <textarea class="inp" rows="2" id="sel-trabalho" placeholder="Ex: Soldagem de tubulação, montagem de estrutura metálica..."></textarea>
+      <input class="inp" id="sel-trabalho" placeholder="Ex: Soldagem de tubulação, montagem estrutural..." style="font-size:13px">
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="fg">
-        <label class="lbl">Início previsto</label>
-        <input class="inp" type="time" id="sel-inicio" value="07:00">
-      </div>
-      <div class="fg" style="margin-bottom:0">
-        <label class="lbl">Duração estimada</label>
-        <select class="inp" id="sel-duracao">
-          <option value="4">4 horas</option>
-          <option value="6">6 horas</option>
-          <option value="8" selected>8 horas (integral)</option>
-          <option value="10">10 horas + H. Extra</option>
-          <option value="12">12 horas</option>
-        </select>
-      </div>
-    </div>`:`
-    <div class="fg">
-      <label class="lbl">Data de início</label>
-      <input class="inp" type="date" id="sel-dt" value="${todayISO()}">
-    </div>`}
-    <div class="fg" style="margin-bottom:20px">
-      <label class="lbl">Observação</label>
-      <textarea class="inp" rows="2" id="sel-obs" placeholder="Opcional..."></textarea>
+
+    <!-- PASSO 4: Selecionar colaboradores (multi) -->
+    <div style="font-size:10px;font-weight:700;color:var(--pri-l);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px"><span style="background:var(--pri-pale);border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;margin-right:6px;font-size:10px">4</span>Colaboradores <span id="sel-count" style="color:var(--grn);font-weight:700;margin-left:4px"></span></div>
+    <div style="max-height:220px;overflow-y:auto;border:1.5px solid var(--g2);border-radius:10px;padding:8px;margin-bottom:14px">
+      ${listaDisponiveis}
     </div>
+
+    <div class="fg" style="margin-bottom:16px">
+      <label class="lbl">Observação (opcional)</label>
+      <textarea class="inp" rows="2" id="sel-obs" placeholder="Informações adicionais..."></textarea>
+    </div>
+
     <div style="display:flex;gap:8px">
       <button class="btn btn-sec" style="flex:1;justify-content:center" onclick="S.modalAloc=false;S.alocTarget=null;render()">Cancelar</button>
-      <button id="btn-aloc" class="btn btn-pri" style="flex:1;justify-content:center" onclick="confirmarAloc()">
-        <i class="ti ti-check"></i> ${isGestor?'Confirmar Equipe':'Confirmar Alocação'}
+      <button id="btn-aloc" class="btn btn-pri" style="flex:1;justify-content:center" onclick="confirmarAlocMulti()">
+        <i class="ti ti-check"></i> Confirmar Alocação
       </button>
     </div>
   </div>
 </div>`;
+}
+
+// Helpers para o novo modal
+function toggleColabCheck(id, el) {
+  if (!el) return;
+  const box = el.querySelector('.chk-box');
+  const isChecked = el.dataset.checked === '1';
+  if (isChecked) {
+    el.dataset.checked = '0';
+    el.style.borderColor = 'var(--g2)';
+    el.style.background = '';
+    box.style.background = '';
+    box.style.borderColor = 'var(--g3)';
+    box.innerHTML = '';
+  } else {
+    el.dataset.checked = '1';
+    el.style.borderColor = 'var(--pri-l)';
+    el.style.background = 'var(--pri-pale)';
+    box.style.background = 'var(--pri-l)';
+    box.style.borderColor = 'var(--pri-l)';
+    box.innerHTML = '<i class="ti ti-check" style="font-size:10px;color:#fff"></i>';
+  }
+  const total = document.querySelectorAll('.colab-check-item[data-checked="1"]').length;
+  const cnt = document.getElementById('sel-count');
+  if (cnt) cnt.textContent = total > 0 ? `(${total} selecionado${total>1?'s':''})` : '';
+}
+
+let _ccSelecionado = '';
+function selecionarCC(tipo) {
+  _ccSelecionado = tipo;
+  const d = document.getElementById('cc-direto');
+  const i = document.getElementById('cc-indireto');
+  if (!d || !i) return;
+  if (tipo === 'Direto') {
+    d.style.cssText += ';background:var(--pri-pale);border-color:var(--pri-l);color:var(--pri-l);font-weight:700';
+    i.style.cssText += ';background:;border-color:;color:;font-weight:';
+  } else {
+    i.style.cssText += ';background:var(--pri-pale);border-color:var(--pri-l);color:var(--pri-l);font-weight:700';
+    d.style.cssText += ';background:;border-color:;color:;font-weight:';
+  }
+}
+
+async function confirmarAlocMulti() {
+  const obraId = document.getElementById('sel-obra')?.value;
+  if (!obraId) { toast('Selecione uma obra', 'warn'); return; }
+  const trabalho = document.getElementById('sel-trabalho')?.value?.trim();
+  const obs = document.getElementById('sel-obs')?.value?.trim();
+  const selecionados = [...document.querySelectorAll('.colab-check-item[data-checked="1"]')].map(el=>el.dataset.id);
+  if (!selecionados.length) { toast('Selecione ao menos um colaborador', 'warn'); return; }
+  const obra = S.obras.find(o=>o.id===obraId);
+  const btn = document.getElementById('btn-aloc');
+  if (btn) { btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Salvando...'; }
+  let ok=0, erros=0;
+  for (const colId of selecionados) {
+    const c = S.colaboradores.find(x=>x.id===colId);
+    if (!c || c.status==='alocado') { erros++; continue; }
+    const payload = { status:'alocado', obra_id:obraId };
+    if (_ccSelecionado) payload.tipo = _ccSelecionado;
+    const { error } = await sb.from('colaboradores').update(payload).eq('id', colId);
+    if (!error) {
+      ok++;
+      await addLog('ALOCAÇÃO','colaboradores',`${c.nome} → ${obra?.nome||''}${trabalho?' | '+trabalho:''}`);
+    } else { erros++; }
+  }
+  S.modalAloc=false; S.alocTarget=null; _ccSelecionado='';
+  await loadAll();
+  if (erros>0) toast(`${ok} alocados, ${erros} com erro`, 'warn');
+  else toast(`✓ ${ok} colaborador(es) alocado(s) em ${obra?.nome||''}`);
 }
 
 function modalBloqueio() {
@@ -1623,17 +1713,42 @@ function modalNovaObra() {
       <span class="modal-title"><i class="ti ti-building-factory-2" style="color:var(--pri-l);margin-right:6px"></i> ${editObra?'Editar Obra':'Cadastrar Nova Obra'}</span>
       <button class="modal-x" onclick="S.modalObra=false;S.editObra=null;render()"><i class="ti ti-x"></i></button>
     </div>
+
+    <!-- Identificação -->
+    <div style="font-size:10px;font-weight:700;color:var(--g4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--g2)"><i class="ti ti-id-badge" style="margin-right:4px"></i>Identificação</div>
+    <div class="fg"><label class="lbl">Nome da Obra *</label><input class="inp" id="ob-nome" placeholder="Ex: COLGATE SBCAMPO" value="${v.nome||''}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="fg" style="grid-column:1/-1"><label class="lbl">Nome da Obra</label><input class="inp" id="ob-nome" placeholder="Ex: P-08 Petrobras" value="${v.nome||''}"></div>
-      <div class="fg"><label class="lbl">Cliente</label><input class="inp" id="ob-cliente" placeholder="Ex: Petrobras" value="${v.cliente||''}"></div>
-      <div class="fg"><label class="lbl">Número do Pedido</label><input class="inp" id="ob-pedido" placeholder="Ex: PD-2026-010" value="${v.pedido||''}"></div>
-      <div class="fg"><label class="lbl">Data de Início</label><input class="inp" type="date" id="ob-inicio" value="${v.inicio||todayISO()}"></div>
-      <div class="fg"><label class="lbl">Prazo de Encerramento</label><input class="inp" type="date" id="ob-prev" value="${v.previsao||''}"></div>
-      <div class="fg"><label class="lbl">HH Estimado</label><input class="inp" type="number" id="ob-hh" placeholder="0" min="0" value="${v.hh||''}"></div>
-      <div class="fg"><label class="lbl">Valor do Contrato (R$)</label><input class="inp" type="number" id="ob-valor" placeholder="0.00" min="0" step="0.01" value="${v.valor||''}"></div>
-      <div class="fg" style="grid-column:1/-1"><label class="lbl">Descrição / Escopo</label><textarea class="inp" rows="2" id="ob-desc" placeholder="Descreva brevemente o escopo da obra...">${v.descricao||''}</textarea></div>
+      <div class="fg"><label class="lbl">Cliente *</label><input class="inp" id="ob-cliente" placeholder="Ex: Colgate" value="${v.cliente||''}"></div>
+      <div class="fg"><label class="lbl">Nº Pedido / Contrato</label><input class="inp" id="ob-pedido" placeholder="Ex: PD-2026-010" value="${v.pedido||''}"></div>
     </div>
-    <div style="display:flex;gap:8px;margin-top:4px">
+
+    <!-- Prazo -->
+    <div style="font-size:10px;font-weight:700;color:var(--g4);text-transform:uppercase;letter-spacing:.6px;margin:4px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--g2)"><i class="ti ti-calendar" style="margin-right:4px"></i>Prazo</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="fg"><label class="lbl">Data de Início *</label><input class="inp" type="date" id="ob-inicio" value="${v.inicio||todayISO()}"></div>
+      <div class="fg"><label class="lbl">Data de Encerramento *</label><input class="inp" type="date" id="ob-prev" value="${v.previsao||''}"></div>
+    </div>
+
+    <!-- Valores -->
+    <div style="font-size:10px;font-weight:700;color:var(--g4);text-transform:uppercase;letter-spacing:.6px;margin:4px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--g2)"><i class="ti ti-currency-dollar" style="margin-right:4px"></i>Valores</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="fg"><label class="lbl">HH Estimado</label><input class="inp" type="number" id="ob-hh" placeholder="0" min="0" value="${v.hh||''}"></div>
+      <div class="fg"><label class="lbl">Valor do Contrato (R$)</label><input class="inp" type="number" id="ob-valor" placeholder="0,00" min="0" step="0.01" value="${v.valor||''}"></div>
+    </div>
+
+    <!-- Escopo -->
+    <div class="fg" style="margin-bottom:16px"><label class="lbl">Descrição / Escopo</label><textarea class="inp" rows="2" id="ob-desc" placeholder="Descreva o escopo da obra...">${v.descricao||''}</textarea></div>
+
+    <!-- Exclusão (apenas edição) -->
+    ${editObra ? `<div style="border-top:1px solid var(--g2);padding-top:12px;margin-bottom:14px">
+      <div style="font-size:10px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px"><i class="ti ti-alert-triangle" style="margin-right:4px"></i>Zona de Exclusão</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-xs" style="background:var(--red-p);color:var(--red);border:1px solid var(--red-p)" onclick="if(confirm('Excluir esta obra? Esta ação não pode ser desfeita.'))excluirObra('${editObra.id}')"><i class="ti ti-trash"></i> Excluir Obra</button>
+        <button class="btn btn-xs" style="background:var(--org-p);color:var(--org);border:1px solid var(--org-p)" onclick="if(confirm('Liberar toda a equipe desta obra?'))liberarEquipeObra('${editObra.id}')"><i class="ti ti-unlink"></i> Liberar Equipe</button>
+      </div>
+    </div>` : ''}
+
+    <div style="display:flex;gap:8px">
       <button class="btn btn-sec" style="flex:1;justify-content:center" onclick="S.modalObra=false;S.editObra=null;render()">Cancelar</button>
       <button id="btn-ob" class="btn btn-pri" style="flex:1;justify-content:center" onclick="salvarObra()">
         <i class="ti ti-check"></i> ${editObra?'Salvar Alterações':'Cadastrar Obra'}
@@ -2164,6 +2279,40 @@ function abrirEditObra(obraId) {
   S.editObra = S.obras.find(o=>o.id===obraId) || null;
   S.modalObra = true;
   render();
+}
+
+async function excluirObra(obraId) {
+  const o = S.obras.find(x=>x.id===obraId);
+  if (!o) return;
+  // Liberar colaboradores primeiro
+  const equipe = S.colaboradores.filter(c=>c.obra_id===obraId);
+  await Promise.all(equipe.map(c=>sb.from('colaboradores').update({status:'ocioso',obra_id:null}).eq('id',c.id)));
+  const { error } = await sb.from('obras').delete().eq('id', obraId);
+  if (error) { toast('Erro ao excluir obra: '+error.message,'err'); return; }
+  await addLog('EXCLUSÃO','obras',o.nome+' excluída');
+  S.modalObra=false; S.editObra=null;
+  await loadAll();
+  toast('✓ Obra excluída com sucesso');
+}
+
+async function liberarEquipeObra(obraId) {
+  const equipe = S.colaboradores.filter(c=>c.obra_id===obraId);
+  if (!equipe.length) { toast('Nenhum colaborador nesta obra','warn'); return; }
+  await Promise.all(equipe.map(c=>sb.from('colaboradores').update({status:'ocioso',obra_id:null}).eq('id',c.id)));
+  await addLog('LIBERAÇÃO','obras',`Equipe da obra ${S.obras.find(o=>o.id===obraId)?.nome||''} liberada`);
+  await loadAll();
+  toast(`✓ ${equipe.length} colaborador(es) liberado(s)`);
+}
+
+async function excluirColab(colId) {
+  const c = S.colaboradores.find(x=>x.id===colId);
+  if (!c) return;
+  const { error } = await sb.from('colaboradores').delete().eq('id', colId);
+  if (error) { toast('Erro ao excluir: '+error.message,'err'); return; }
+  await addLog('EXCLUSÃO','colaboradores',c.nome+' excluído');
+  S.modalColab=null;
+  await loadAll();
+  toast('✓ Colaborador excluído');
 }
 
 async function encerrarObra(obraId) {
